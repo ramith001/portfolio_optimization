@@ -70,6 +70,36 @@ Yahoo Finance prices  --->  log returns  --->  Sample Covariance  --->  Efficien
 
 ---
 
+## Part 1: Extended Date Range
+
+The original run covered 2014 to 2024 across the same 8-asset universe. This extends it through October 2026 (3,214 trading days), giving 15 non-overlapping 6-month rolling windows instead of 9. The first 9 windows reproduce the original per-window errors exactly, confirming the refactor into `portfolio_utils.py` changed nothing about the underlying calculations.
+
+The COVID window (test starting January 2020) is still the clear outlier, at 29.5% sample-covariance error -- nothing in the newly added period comes close; the next largest error anywhere in the sample is 10.0%.
+
+Excluding COVID, GARCH-informed covariance keeps its edge over the extended sample, though the margin narrows slightly:
+
+| | Original (8 windows) | Extended (14 windows) |
+|---|---|---|
+| Sample covariance, avg error | 4.90% | 5.78% |
+| GARCH-informed, avg error | 3.52% | 4.32% |
+| GARCH relative improvement | 28.2% | 25.4% |
+| Windows won by GARCH | 5 of 8 | 10 of 14 |
+
+Not every new window favors GARCH: the window testing from January 2025 is a clear loss for the GARCH-informed covariance (12.25% error vs. 5.44% for sample covariance) -- a reminder that the GARCH approach wins on average across windows, not in every one.
+
+Full-sample Max Sharpe volatility is largely unchanged: 18.42% with sample covariance (was 19.97%) versus 14.48% GARCH-informed (was 14.20%).
+
+---
+
+## Files
+
+- `portfolio_optimization.ipynb` -- the original 2014-2024 notebook, left untouched.
+- `portfolio_utils.py` -- the Markowitz and GARCH-covariance functions factored out of the original notebook (bodies unchanged), plus `run_rolling_validation()` to run the rolling-window comparison on any date range.
+- `part1_extended_period.ipynb` -- Part 1: the same analysis through October 2026, using `portfolio_utils.py`.
+- `chart_extended_rolling_windows.png` -- per-window prediction error, sample vs. GARCH-informed covariance, extended period.
+
+---
+
 ## Stack
 
 - **Language:** Python 3.13
