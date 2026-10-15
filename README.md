@@ -62,7 +62,7 @@ Yahoo Finance prices  --->  log returns  --->  Sample Covariance  --->  Efficien
 
 ## Known Limitations
 
-**Correlation is assumed stable; only volatility is treated as time-varying.** The GARCH-informed covariance matrix updates each asset's individual volatility dynamically but reuses the static historical correlation matrix. A fuller dynamic conditional correlation model (DCC-GARCH) would let correlations shift too, a natural next step.
+**Correlation is static in the main analysis; Part 2 tests a dynamic alternative.** The GARCH-informed covariance matrix in the main analysis and Part 1 updates each asset's individual volatility dynamically but reuses the static historical correlation matrix. Part 2 adds a simple DCC-GARCH correlation estimate and compares the two (see below). The DCC used is the basic two-parameter version with a two-step estimator, shared by every pair of assets; richer variants (asset-specific dynamics, asymmetric terms, joint estimation) were not tried.
 
 **Long-only, no transaction costs.** Portfolios are rebalanced fresh at each window with no penalty for turnover between periods. A real implementation would need to weigh the benefit of a more responsive covariance estimate against the trading costs of acting on it more frequently.
 
@@ -91,12 +91,52 @@ Full-sample Max Sharpe volatility is largely unchanged: 18.42% with sample covar
 
 ---
 
+## Part 2: Dynamic Correlation (DCC-GARCH) vs. Static Correlation
+
+Part 1's covariance keeps each asset's GARCH volatility current but holds the correlation matrix fixed at its historical value. This adds a simple DCC-GARCH estimate (Engle 2002, two shared parameters `a` and `b`, estimated by the standard two-step method) so correlations can move too, and compares the two head-to-head. The implementation is in `portfolio_utils.py`; `part2_dcc_correlation.ipynb` runs the comparison on the same 8 assets, same 15 rolling 6-month windows and the same Part 1 data (end date pinned to 2026-10-13 so it reproduces).
+
+The comparison is deliberately a one-variable change: the DCC covariance uses *exactly the same* per-asset GARCH volatilities as Part 1's "GARCH-informed" covariance (the notebook checks this), and only the correlation matrix differs, DCC forecast instead of static historical.
+
+**Correlations do move, and persistently.** The full-sample fit gives `a` = 0.0095 and `b` = 0.9815 (`a + b` = 0.991): shocks to correlation are small but very long-lived. The average pairwise correlation across the 8 stocks ranges from 0.14 (August 2026) to 0.46 (April 2020, the COVID crash) against a single static value of 0.32. Today's correlation is well below the static average, so the DCC forecast for the next six months (0.20) is much lower than the static 0.32.
+
+**DCC forecasts realized correlations better.** The cleanest test doesn't involve any portfolio: how far is each method's correlation matrix from the correlations actually realized over the next 6 months (mean absolute error across the 28 pairwise correlations)?
+
+| | Static historical | DCC forecast |
+|---|---|---|
+| Mean correlation error, 15 windows | 0.208 | 0.168 |
+| Windows closer to realized | 3 of 15 | 12 of 15 |
+
+The improvement is consistent (paired t-statistic 3.1 over 15 windows) but it is not universal: DCC does worse in three windows, including the COVID window (Jan 2020 test start), where correlations spiked within the test period itself and neither method could have anticipated it.
+
+**The portfolio-volatility effect is smaller and not statistically clear.** Using Part 1's metric, the average gap between a Max Sharpe portfolio's predicted and realized volatility:
+
+| | All 15 windows | Excluding COVID window (14) |
+|---|---|---|
+| Sample covariance | 7.36% | 5.78% |
+| GARCH + static correlation (Part 1) | 6.23% | 4.32% |
+| GARCH + DCC correlation (Part 2) | 5.91% | 3.92% |
+
+DCC has the lowest average error, and beats the static-correlation version in 10 of 15 windows (10 of 14 excluding COVID). But the improvement is about 0.3-0.4 percentage points against window-to-window standard deviations of about 4 to 9 points, and the paired t-statistics are only 1.1 (all windows) and 1.3 (excluding COVID), so with 15 windows this should be read as "consistent with a modest gain", not as proven. Excluding COVID, GARCH + DCC is 32% lower in error than sample covariance (3.92% vs. 5.78%), compared with 25% for the static-correlation version (4.32%).
+
+There are five windows where GARCH with static correlation does worse than plain sample covariance. In four of them (Jan 2019, Jan 2020, Jan 2022, Jan 2025; GARCH errors of 7-33%) DCC doesn't help either, and both GARCH variants miss by about the same amount. That points to the volatility level, not the correlations, as the dominant error there, so the correlation model can't fix it. In the fifth (Jan 2021) DCC does fix it (3.1% down to 1.3%).
+
+On the full sample, DCC changes the Max Sharpe weights modestly (JPM 35% to 29%, JNJ 4% to 7%, CAT 0% to 4%) and lowers the predicted volatility from 14.48% to 13.18%. That drop is a forecast of a lower-correlation regime, not evidence the portfolio would have been safer.
+
+![DCC average pairwise correlation over time, and correlation forecast error by window](chart_part2_dcc.png)
+
+A note on a bug caught along the way: the first version of the DCC optimizer (SLSQP with a stationarity constraint) wandered outside the constraint in one window (`a + b` = 1.009), where the correlation process explodes and the likelihood becomes spuriously low, and that window then looked artificially good. The fit now uses a parametrization that guarantees `a + b < 0.999`, and the notebook asserts this holds in every window (the largest is 0.988).
+
+---
+
 ## Files
 
 - `portfolio_optimization.ipynb` -- the original 2014-2024 notebook, left untouched.
 - `portfolio_utils.py` -- the Markowitz and GARCH-covariance functions factored out of the original notebook (bodies unchanged), plus `run_rolling_validation()` to run the rolling-window comparison on any date range.
 - `part1_extended_period.ipynb` -- Part 1: the same analysis through October 2026, using `portfolio_utils.py`.
 - `chart_extended_rolling_windows.png` -- per-window prediction error, sample vs. GARCH-informed covariance, extended period.
+- `part2_dcc_correlation.ipynb` -- Part 2: DCC vs. static correlation head-to-head (the DCC functions were added to `portfolio_utils.py`).
+- `chart_part2_dcc.png` -- DCC average correlation over time, and correlation forecast error by window.
+- `part2_rolling_dcc_comparison.csv` -- the per-window numbers behind the Part 2 tables.
 
 ---
 
