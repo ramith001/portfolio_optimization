@@ -341,3 +341,139 @@ def run_rolling_dcc_comparison(log_returns, tickers, n_assets, annualize=252, tr
                   f'dcc={row["garch_dcc_error"]*100:.2f}%  |  corr err static={row["corr_err_static"]:.3f}, '
                   f'dcc={row["corr_err_dcc"]:.3f}  (a={info["a"]:.3f}, b={info["b"]:.3f})')
     return windows, pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Part 3: transaction costs and turnover
+#
+# Everything above is unchanged. Below are the pieces the cost-aware rolling
+# comparison is built from.
+#
+# Cost model: a proportional cost of `cost` (a fraction, so 10 bps = 0.0010) on every unit of
+# portfolio value traded, buys and sells both counted, i.e. cost * sum_i |w_new_i - w_drifted_i| paid
+# at the rebalance. "w_drifted" is last window's weights after they have drifted with the assets'
+# own returns over that window (buy-and-hold inside a window), which is what the portfolio actually
+# holds on rebalance day. Turnover below is the same quantity, sum |w_new - w_drifted|.
+# ---------------------------------------------------------------------------
+def drift_weights(weights, test_returns):
+    """Weights after buy-and-hold over a window of daily log returns (DataFrame, columns = assets)."""
+    growth = np.exp(test_returns.sum().values)
+    w = np.asarray(weights) * growth
+    return w / w.sum()
+
+
+def buy_and_hold_daily_returns(weights, test_returns):
+    """Daily simple returns of a portfolio that starts the window at `weights` and is not rebalanced
+    inside it (so it is consistent with drift_weights). First return is relative to the start value 1."""
+    values = (np.exp(test_returns.cumsum().values) * np.asarray(weights)).sum(axis=1)
+    prev = np.concatenate([[1.0], values[:-1]])
+    return pd.Series(values / prev - 1.0, index=test_returns.index)
+
+
+def max_sharpe_with_turnover_penalty(mean_returns, cov, n_assets, w_prev, cost, rebalances_per_year=2,
+                                      rf=0.02, max_weight=0.35):
+    """
+    Max Sharpe with a turnover penalty in the objective: maximize
+        (w'mu - rf - rebalances_per_year * cost * sum|w - w_prev|) / sqrt(w'Cov w)
+    i.e. expected annual excess return net of the annualized cost of trading from w_prev (the drifted
+    holdings) to w. mu and Cov are annualized, so the one-off rebalance cost is annualized by the number
+    of rebalances per year (2 for the 6-month windows). Same 35% cap and long-only constraint as
+    max_sharpe_portfolio.
+
+    sum|w - w_prev| is non-smooth, so it is written with the standard split w - w_prev = u - v, u, v >= 0
+    and penalty sum(u + v) (exact at the optimum because the penalty makes u and v never both positive).
+    With cost = 0 this is max_sharpe_portfolio.
+    """
+    if cost == 0:
+        return max_sharpe_portfolio(mean_returns, cov, n_assets, rf=rf, max_weight=max_weight)
+    mu, S, w_prev = mean_returns.values, cov.values, np.asarray(w_prev)
+    rate = rebalances_per_year * cost
+
+    def neg_net_sharpe(x):
+        w, u, v = x[:n_assets], x[n_assets:2 * n_assets], x[2 * n_assets:]
+        return -(w @ mu - rf - rate * np.sum(u + v)) / np.sqrt(w @ S @ w)
+
+    bounds = [(0, max_weight)] * n_assets + [(0, 1)] * (2 * n_assets)
+    constraints = [
+        {'type': 'eq', 'fun': lambda x: np.sum(x[:n_assets]) - 1},
+        {'type': 'eq', 'fun': lambda x: x[:n_assets] - w_prev - x[n_assets:2 * n_assets] + x[2 * n_assets:]},
+    ]
+    best = None
+    for start in (w_prev, np.ones(n_assets) / n_assets):
+        d = start - w_prev
+        x0 = np.concatenate([start, np.maximum(d, 0), np.maximum(-d, 0)])
+        res = minimize(neg_net_sharpe, x0, method='SLSQP', bounds=bounds, constraints=constraints,
+                        options={'maxiter': 300})
+        if res.success and (best is None or res.fun < best.fun):
+            best = res
+    if best is None:
+        return np.asarray(w_prev)
+    w = np.clip(best.x[:n_assets], 0, max_weight)
+    return w / w.sum()
+
+
+def build_window_inputs(log_returns, tickers, annualize=252, train_years=5, test_months=6, verbose=True):
+    """
+    For each rolling window (same windows as run_rolling_validation), build from the TRAINING data only the
+    inputs every strategy needs: annualized mean returns and the three covariance estimates from Parts 1-2
+    (sample, GARCH + static correlation, GARCH + DCC correlation), plus the test-window returns. Computed
+    once so the cost comparison can run many strategies and cost levels off the same estimates.
+    """
+    windows = get_rolling_windows(log_returns.index, train_years=train_years, test_months=test_months)
+    horizon = int(test_months * 21)
+    out = []
+    for w_idx, (train_start, train_end, test_end) in enumerate(windows):
+        train = log_returns.iloc[train_start:train_end]
+        cov_static, _ = build_garch_covariance(train, tickers)
+        cov_dcc, _, _ = build_dcc_covariance(train, tickers, horizon_days=horizon, annualize=annualize)
+        out.append({'window': w_idx + 1, 'test_start': log_returns.index[train_end].date(),
+                    'mean': train.mean() * annualize,
+                    'cov': {'sample': train.cov() * annualize, 'garch_static': cov_static, 'garch_dcc': cov_dcc},
+                    'test': log_returns.iloc[train_end:test_end]})
+        if verbose:
+            print(f'  Window {w_idx + 1}/{len(windows)} inputs built (test starting {out[-1]["test_start"]})')
+    return out
+
+
+def simulate_strategy(window_inputs, n_assets, cov_key, cost, cost_aware, rf=0.02, max_weight=0.35,
+                      rebalances_per_year=2):
+    """
+    Roll one strategy through the windows in order. Each window: choose weights from the training-data
+    estimates (cov_key picks the covariance; cost_aware=True uses max_sharpe_with_turnover_penalty from the
+    current drifted holdings, False uses the plain max_sharpe_portfolio and ignores the cost when choosing),
+    pay cost * sum|w_new - w_drifted|, then hold buy-and-hold through the test window.
+    Window 1 starts fully invested at its chosen weights with no entry cost (the same for every strategy),
+    so costs only come from the 14 rebalances. cov_key = 'equal_weight' is the 1/N reference.
+    Returns (window_df, daily_net_returns, daily_gross_returns).
+    """
+    rows, net_parts, gross_parts = [], [], []
+    w_drift = None
+    for wi in window_inputs:
+        if cov_key == 'equal_weight':
+            w = np.ones(n_assets) / n_assets
+        elif cost_aware and w_drift is not None:
+            w = max_sharpe_with_turnover_penalty(wi['mean'], wi['cov'][cov_key], n_assets, w_drift, cost,
+                                                  rebalances_per_year, rf, max_weight)
+        else:
+            w = max_sharpe_portfolio(wi['mean'], wi['cov'][cov_key], n_assets, rf=rf, max_weight=max_weight)
+        turnover = 0.0 if w_drift is None else float(np.abs(w - w_drift).sum())
+        trade_cost = cost * turnover
+        gross = buy_and_hold_daily_returns(w, wi['test'])
+        net = gross.copy()
+        net.iloc[0] = (1 + gross.iloc[0]) * (1 - trade_cost) - 1
+        rows.append({'window': wi['window'], 'test_start': wi['test_start'], 'turnover': turnover,
+                     'cost_paid': trade_cost, 'gross_window_return': float((1 + gross).prod() - 1),
+                     'net_window_return': float((1 + net).prod() - 1), 'max_weight': float(w.max()),
+                     'n_holdings': int((w > 0.005).sum())})
+        net_parts.append(net)
+        gross_parts.append(gross)
+        w_drift = drift_weights(w, wi['test'])
+    return pd.DataFrame(rows), pd.concat(net_parts), pd.concat(gross_parts)
+
+
+def performance_summary(daily_returns, rf=0.02, annualize=252):
+    """Annualized (geometric) return, volatility and Sharpe of a daily simple-return series."""
+    n = len(daily_returns)
+    ann_ret = (1 + daily_returns).prod() ** (annualize / n) - 1
+    ann_vol = daily_returns.std() * np.sqrt(annualize)
+    return {'ann_return': ann_ret, 'ann_vol': ann_vol, 'sharpe': (ann_ret - rf) / ann_vol}

@@ -1,0 +1,9 @@
+comparison,mean_net_window_return_diff_%,t_stat,windows_first_better
+GARCH + static vs. sample (cost-blind),0.21660949223111237,0.2104745304836191,9
+GARCH + DCC vs. sample (cost-blind),-0.01729782985652406,-0.01549917146187085,7
+GARCH + DCC vs. GARCH + static (cost-blind),-0.23390732208763643,-1.252848905471675,7
+Cost-aware vs. cost-blind: sample,-0.04265783986335814,-0.8370715544760017,5
+Cost-aware vs. cost-blind: GARCH + static,0.08796608223347788,1.232281050043639,9
+Cost-aware vs. cost-blind: GARCH + DCC,0.0427586736236063,0.9905888552048934,8
+Sample (cost-blind) vs. equal weight,-1.1498764038091767,-0.775084722903242,7
+GARCH + DCC (cost-blind) vs. equal weight,-1.1671742336657005,-0.8459781208859919,6
