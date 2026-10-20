@@ -255,6 +255,37 @@ Variance treats gains and losses alike and says little about the tail. Part 7 ad
 
 ![Sharpe against drawdown for every strategy, realized tail loss, and CVaR prediction error](chart_part7_cvar.png)
 
+## Part 8: Sensitivity to the Window Length
+
+The test window (six months) and the training window (five years) were each chosen once. `part8_window_length.ipynb` varies them on the 8-stock universe: a 3-, 6- or 12-month test window with five years of training, and a 3-, 5- or 7-year training window with a six-month test window (DCC horizon set to match). It reports each configuration's volatility prediction error over its own windows and, because the configurations cover different spans of time, net performance (10 bps costs, window T-bill rate in the optimizer, Sharpe against the T-bill) on the dates every configuration in the group covers: 2019-01-07 to 2026-01-12 for the test-window group and 2021-01-06 to 2026-07-15 for the training group.
+
+**The GARCH advantage in volatility prediction is clear at 3 and 6 months and disappears at 12.** Mean absolute volatility prediction error excluding the COVID window, with 5 years of training:
+
+| Test window | Windows | Sample | GARCH static corr | GARCH DCC corr |
+|---|---|---|---|---|
+| 3 months | 30 | 5.85% | 4.60% | 4.06% |
+| 6 months | 14 | 5.79% | 4.32% | 3.94% |
+| 12 months | 6 | 5.37% | 5.38% | 4.90% |
+
+With 3-month windows GARCH static beats the sample covariance in 20 of 30 windows (paired t = 1.58) and DCC in 22 of 30 (t = 2.19), the strongest evidence in the project that a GARCH-based covariance predicts portfolio volatility better. At 12 months static GARCH is level with the sample covariance (5.38% vs. 5.37%, t = -0.01, better in 3 of 7 windows) and only DCC is ahead (t = 0.21), on 6 non-COVID windows. A plausible reason, not tested here, is that GARCH's advantage comes from the current volatility state, which mean-reverts within a year. The advantage also holds across training lengths: excluding COVID, static GARCH has an error of 3.49%, 4.32% and 4.14% against 4.90%, 5.79% and 6.04% for the sample covariance with 3, 5 and 7 years of training.
+
+**Realized Sharpe ratios do not follow the prediction results, and the Part 3 Sharpe edge for GARCH depends on the training length.** Net Sharpe against the T-bill on the common dates:
+
+| | Sample | GARCH static | GARCH DCC | Equal weight |
+|---|---|---|---|---|
+| 3-month test, 5y training | 0.562 | 0.647 | 0.665 | 0.998 |
+| 6-month test, 5y training | 0.685 | 0.772 | 0.760 | 0.988 |
+| 12-month test, 5y training | 0.656 | 0.731 | 0.743 | 1.016 |
+| 6-month test, 3y training | 0.822 | 0.671 | 0.617 | 1.060 |
+| 6-month test, 5y training | 0.569 | 0.681 | 0.676 | 1.060 |
+| 6-month test, 7y training | 0.511 | 0.472 | 0.514 | 1.060 |
+
+Both GARCH variants are ahead of the sample covariance at every test-window length with five years of training, by 0.08 to 0.10 at every test-window length. But with three years of training the order reverses (sample covariance 0.822 against 0.671 and 0.617), and with seven years all three are within 0.05 of each other. So the small Sharpe advantage Part 3 found for GARCH-informed covariance holds for the five-year training window it was measured on, and for neither of the other two. Part 4 found it did not carry to 13 assets either. Equal weight, which uses none of these choices, has a Sharpe ratio of 0.99 to 1.06 in every row and is the best strategy in all of them.
+
+**Shorter windows cost more, but the cost is small next to the differences above.** Cost drag at 10 bps is 0.14 to 0.26 percentage points a year with 3-month windows (4 rebalances a year), 0.09 to 0.13 with 6-month windows and 0.05 to 0.07 with 12-month windows. Turnover per rebalance is higher for the GARCH variants (0.57 and 0.51 at 3 months against 0.31 for the sample covariance). The six-month window has the highest Sharpe for the optimized strategies, but the differences between 3, 6 and 12 months (up to 0.12) are within what a few windows could change, so there is no evidence that six months was a special choice, nor that it was a poor one.
+
+![Volatility prediction error by test-window length, and net Sharpe by test-window and training-window length](chart_part8_window_length.png)
+
 ---
 ## Files
 
@@ -280,6 +311,9 @@ Variance treats gains and losses alike and says little about the tail. Part 7 ad
 - `part7_cvar.ipynb` -- Part 7: minimum-CVaR and maximum-STARR portfolios on historical and filtered scenarios against the mean-variance portfolios (the linear programs, `filtered_scenarios`, `portfolio_cvar` and `simulate_given_weights` were added to `portfolio_utils.py`).
 - `chart_part7_cvar.png` -- Sharpe vs. drawdown, realized tail loss and CVaR prediction error.
 - `part7_cvar_results.csv`, `part7_ranks.csv`, `part7_bootstrap_sharpe_differences.csv`, `part7_cvar_prediction.csv`, `part7_weights.csv` -- the numbers behind the Part 7 tables, and every window's weights.
+- `part8_window_length.ipynb` -- Part 8: 3-, 6- and 12-month test windows and 3-, 5- and 7-year training windows on the 8 stocks (per-configuration estimates are cached in git-ignored `cache_inputs8_*.pkl` files).
+- `chart_part8_window_length.png` -- volatility error and net Sharpe by window length.
+- `part8_vol_error_by_window_length.csv`, `part8_performance_by_window_length.csv`, `part8_cost_drag.csv`, `part8_window_errors.csv` -- the numbers behind the Part 8 tables.
 
 ---
 
