@@ -559,3 +559,78 @@ def performance_vs_risk_free(daily_returns, rf_daily, fixed_rf=0.02, annualize=2
     return {'ann_return': ann_ret, 'ann_vol': ann_vol, 'avg_tbill': ann_rf, 'sharpe_fixed': (ann_ret - fixed_rf) / ann_vol,
             'sharpe_tbill': (ann_ret - ann_rf) / ann_vol}
 
+
+
+# ---------------------------------------------------------------------------
+# Part 6: benchmarks and tail-aware performance measures
+# ---------------------------------------------------------------------------
+def drawdown_path(daily_returns):
+    """Running drawdown of the wealth path of a daily simple-return series (0 at a new high, negative below it)."""
+    wealth = (1 + daily_returns).cumprod()
+    return wealth / wealth.cummax() - 1
+
+
+def risk_summary(daily_returns, rf_daily, annualize=252):
+    """Return, volatility, Sharpe against the T-bill, maximum drawdown, Calmar ratio and Sortino-type downside deviation."""
+    n = len(daily_returns)
+    ann_ret = (1 + daily_returns).prod() ** (annualize / n) - 1
+    vol = daily_returns.std() * np.sqrt(annualize)
+    rf = rf_daily.reindex(daily_returns.index).fillna(0.0)
+    ann_rf = (1 + rf).prod() ** (annualize / n) - 1
+    mdd = drawdown_path(daily_returns).min()
+    down = np.sqrt(np.mean(np.minimum(daily_returns - rf, 0.0) ** 2)) * np.sqrt(annualize)
+    return {'ann_return': ann_ret, 'ann_vol': vol, 'sharpe': (ann_ret - ann_rf) / vol, 'max_drawdown': mdd,
+            'calmar': ann_ret / abs(mdd), 'sortino': (ann_ret - ann_rf) / down}
+
+
+def block_bootstrap_indices(n, n_boot, block=21, seed=0):
+    """Circular block bootstrap: (n_boot, n) array of row numbers built from blocks of `block` consecutive days."""
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(n / block))
+    starts = rng.integers(0, n, size=(n_boot, n_blocks))
+    idx = (starts[:, :, None] + np.arange(block)[None, None, :]) % n
+    return idx.reshape(n_boot, -1)[:, :n]
+
+
+def sharpe_from_arrays(r, rf, annualize=252):
+    """Vectorized Sharpe (geometric return minus compounded T-bill, over vol) for rows of daily returns r (m x n)."""
+    n = r.shape[1]
+    ann_ret = np.exp(np.log1p(r).sum(axis=1) * annualize / n) - 1
+    ann_rf = np.exp(np.log1p(rf).sum(axis=1) * annualize / n) - 1
+    return (ann_ret - ann_rf) / (r.std(axis=1, ddof=1) * np.sqrt(annualize))
+
+
+def bootstrap_sharpe_differences(returns, rf_daily, n_boot=5000, block=21, seed=0):
+    """
+    returns: DataFrame of daily returns (columns = strategies) on a common set of dates. Resamples days in blocks
+    (the same blocks for every strategy, so differences are paired) and returns, per strategy, the Sharpe point
+    estimate and bootstrap interval, plus the bootstrap distribution of every pairwise Sharpe difference.
+    """
+    idx = block_bootstrap_indices(len(returns), n_boot, block, seed)
+    rf = rf_daily.reindex(returns.index).fillna(0.0).values
+    sharpes = {c: sharpe_from_arrays(returns[c].values[idx], rf[idx]) for c in returns.columns}
+    return sharpes
+
+
+def capm_regression(strategy, market, rf_daily, lags=10, annualize=252):
+    """Regression of daily excess returns on the market's, with a Newey-West covariance. Returns alpha (annualized),
+    beta, R^2 and the t-statistics of alpha and beta."""
+    rf = rf_daily.reindex(strategy.index).fillna(0.0)
+    y = (strategy - rf).values
+    x = (market.reindex(strategy.index) - rf).values
+    X = np.column_stack([np.ones(len(x)), x])
+    beta_hat, *_ = np.linalg.lstsq(X, y, rcond=None)
+    e = y - X @ beta_hat
+    n = len(y)
+    XtX_inv = np.linalg.inv(X.T @ X)
+    S = (X * e[:, None]).T @ (X * e[:, None])
+    for L in range(1, lags + 1):
+        w = 1 - L / (lags + 1)
+        G = (X[L:] * e[L:, None]).T @ (X[:-L] * e[:-L, None])
+        S += w * (G + G.T)
+    cov = XtX_inv @ S @ XtX_inv
+    se = np.sqrt(np.diag(cov))
+    r2 = 1 - (e ** 2).sum() / ((y - y.mean()) ** 2).sum()
+    return {'alpha_ann': beta_hat[0] * annualize, 'beta': beta_hat[1], 'r2': r2,
+            't_alpha': beta_hat[0] / se[0], 't_beta': beta_hat[1] / se[1]}
+

@@ -189,7 +189,7 @@ The optimizer and every Sharpe ratio so far used a fixed 2% risk-free rate. The 
 
 **Measurement matters more than the optimizer.** Over the test windows the T-bill compounded to 2.74% a year, 0.74 points above the assumed 2%, so every Sharpe ratio computed against 2% is too high: by 0.035 to 0.041 with 8 stocks and 0.049 to 0.051 with 13 assets. For example, equal weight on 8 stocks has a net Sharpe of 1.102 against 2% and 1.061 against the T-bill. The Part 3 and Part 4 figures are the first kind; this part's are the second.
 
-**In the optimizer, the rate changes the portfolio only a little.** Full-sample Max Sharpe weights (8 stocks, GARCH covariance) move by 2.8 percentage points in total between a 0% and a 2% rate and by 7.2 between 2% and 5%; JPM, AAPL and NEE hold the same positions at all three. In the rolling comparison the share of the portfolio that differs between the fixed-rate and T-bill-rate versions averages 2% to 5% per window (at most 16%), and almost no window is identical. Using each window's own rate raises net Sharpe against the T-bill for every optimized strategy:
+**In the optimizer, the rate changes the portfolio only a little.** Full-sample Max Sharpe weights (8 stocks, GARCH covariance) move by 2.8 percentage points in total between a 0% and a 2% rate and by 7.2 between 2% and 5%; JPM and AAPL stay at the 35% cap and NEE stays near 23.5% at all three. In the rolling comparison the share of the portfolio that differs between the fixed-rate and T-bill-rate versions averages 2% to 5% per window (at most 16%), and almost no window is identical. Using each window's own rate raises net Sharpe against the T-bill for every optimized strategy:
 
 | Net Sharpe vs. T-bill | Sample | GARCH + static corr | GARCH + DCC corr | Equal weight |
 |---|---|---|---|---|
@@ -201,6 +201,28 @@ The optimizer and every Sharpe ratio so far used a fixed 2% risk-free rate. The 
 The gains (0.023 to 0.047) are about the size of the differences between the covariance methods themselves, over 15 windows of which the rate regime changes in only a few, so they should be read as small and untested, not as a reason to prefer the time-varying rate. Equal weight does not use the rate and is the best strategy in every row. The ordering of the optimized strategies is stable with 8 stocks (both GARCH variants above the sample covariance under either rate). With 13 assets it depends on the rate: DCC, then sample, then static correlation with the fixed rate; sample, DCC, then static with the T-bill rate.
 
 ![T-bill yield and the rate each window used, and net Sharpe against the T-bill return for 8 and 13 assets](chart_part5_risk_free.png)
+
+## Part 6: Benchmarks
+
+Part 3 used equal weight as a reference. Part 6 compares the Max Sharpe strategies (the Part 5 versions: window T-bill in the optimizer, net of 10 bps, sample, GARCH with static correlation, GARCH with DCC correlation) against equal weight of the same assets, rebalanced each window, and against S&P 500 buy-and-hold (SPY, total return), over the same 1,890 days (January 2019 to July 2026), for the 8-stock and the 13-asset universe. `part6_benchmarks.ipynb` adds drawdowns, window-by-window counts, a CAPM regression on SPY with a Newey-West covariance, and a block bootstrap (5,000 resamples in 21-day blocks, the same blocks for every strategy) for the Sharpe ratios. The helpers (`risk_summary`, `drawdown_path`, `capm_regression`, `bootstrap_sharpe_differences`) were added to `portfolio_utils.py`. Sharpe ratios are against the T-bill return actually earned, as in Part 5.
+
+| | Return | Vol | Sharpe | Max drawdown | Calmar |
+|---|---|---|---|---|---|
+| S&P 500 (SPY) | 17.5% | 19.4% | 0.760 | -33.7% | 0.52 |
+| 8 stocks: Sample | 19.3% | 21.1% | 0.782 | -28.1% | 0.69 |
+| 8 stocks: GARCH static | 20.0% | 20.1% | 0.862 | -30.0% | 0.67 |
+| 8 stocks: GARCH DCC | 19.5% | 19.6% | 0.857 | -30.2% | 0.65 |
+| 8 stocks: equal weight | 21.7% | 17.8% | 1.061 | -30.5% | 0.71 |
+| 13 assets: Sample | 15.7% | 14.9% | 0.870 | -23.0% | 0.68 |
+| 13 assets: GARCH static | 14.8% | 14.7% | 0.817 | -23.5% | 0.63 |
+| 13 assets: GARCH DCC | 15.5% | 14.7% | 0.865 | -22.6% | 0.69 |
+| 13 assets: equal weight | 16.8% | 14.6% | 0.962 | -25.9% | 0.65 |
+
+**The optimized portfolios are only slightly ahead of the index, and equal weight is ahead of both.** The Max Sharpe portfolios on 8 stocks have a Sharpe of 0.78 to 0.86 against 0.76 for SPY, and they drew down 28% to 30% against SPY's 34%. Equal weight of the same 8 stocks has the highest return, the highest Sharpe (1.061) and the best Calmar ratio. Adding the five non-stock assets cuts volatility to about 14.7% and the maximum drawdown to 23% to 26%, with a lower return, so the 13-asset portfolios have a similar Sharpe ratio to the 8-stock optimized ones and a shallower drawdown than SPY. Beta to SPY is 0.83 to 0.92 for the 8-stock strategies and 0.57 to 0.69 for the 13-asset ones.
+
+**Evidence about which is better is weak.** Over single six-month windows, the optimized 8-stock portfolios beat SPY in 7 to 11 of 15 windows and equal weight does in 8; the optimized 13-asset portfolios beat SPY in 6 to 8. Only equal weight on 8 stocks has a CAPM alpha with a t-statistic above 2 (5.9% a year, t = 2.24); the Max Sharpe strategies' alphas are 3% to 4% with t-statistics between 0.7 and 1.1 (8 stocks) and 1.0 to 1.3 (13 assets). In the bootstrap, each strategy's Sharpe ratio has a 90% interval about 1.4 wide (for example 0.14 to 1.59 for the 8-stock sample covariance and 0.38 to 1.92 for equal weight). The probability that an optimized strategy's Sharpe ratio exceeds equal weight's is 11% to 34%, and that it exceeds SPY's is 52% to 66%. Equal weight on 8 stocks exceeds SPY in 96% of resamples (median Sharpe difference +0.30, 90% interval +0.02 to +0.62), and on 13 assets in 88% (median +0.20, interval -0.09 to +0.50). So equal weight is the best point estimate and probably better than the index, while the Max Sharpe portfolios cannot be told apart from SPY or from each other. The same caveats as before apply: 15 windows, one period, and universes of today's large caps and ETFs picked with hindsight.
+
+![Wealth, drawdowns and Sharpe ratio intervals for the optimized portfolios, equal weight and the S&P 500](chart_part6_benchmarks.png)
 
 ---
 ## Files
@@ -221,6 +243,9 @@ The gains (0.023 to 0.047) are about the size of the differences between the cov
 - `part5_risk_free.ipynb` -- Part 5: fixed vs. time-varying risk-free rate in the optimizer and in the Sharpe ratio (`window_risk_free`, `simulate_strategy_rf` and `performance_vs_risk_free` were added to `portfolio_utils.py`).
 - `chart_part5_risk_free.png` -- the T-bill yield with each window's rate, and net Sharpe against the T-bill return.
 - `part5_risk_free_comparison.csv`, `part5_weight_differences.csv`, `part5_window_rf.csv`, `part5_fullsample_weights_by_rf.csv` -- the numbers behind the Part 5 tables.
+- `part6_benchmarks.ipynb` -- Part 6: the strategies against equal weight and S&P 500 buy-and-hold, with drawdowns, a CAPM regression and a block bootstrap of the Sharpe ratios.
+- `chart_part6_benchmarks.png` -- wealth paths, drawdowns and Sharpe intervals.
+- `part6_benchmark_summary.csv`, `part6_window_comparison.csv`, `part6_window_returns.csv`, `part6_capm.csv`, `part6_bootstrap_sharpe.csv` -- the numbers behind the Part 6 tables.
 
 ---
 
