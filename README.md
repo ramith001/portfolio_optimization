@@ -12,7 +12,9 @@ Standard Markowitz portfolio theory builds an efficient frontier from a single, 
 - a **GARCH-informed covariance**: each asset's volatility from a GARCH(1,1) model (the from-scratch implementation in the companion [volatility forecasting project](https://github.com/ramith001/volatility-forecasting)) combined with the historical correlation matrix, related to the Constant Conditional Correlation GARCH framework (Bollerslev, 1990);
 - the same volatilities with a **DCC-GARCH** forecast of the correlation matrix (Part 2).
 
-They are compared on how well they predict a portfolio's volatility over the next six months, and on the realized, net-of-cost performance of the Max Sharpe portfolios built from them, against equal-weight and S&P 500 benchmarks. Later parts add transaction costs, a wider asset universe, a time-varying risk-free rate, a CVaR-based objective and different window lengths.
+They are compared on how well they predict a portfolio's volatility over the next six months, and on the realized, net-of-cost performance of the Max Sharpe portfolios built from them, against equal-weight and S&P 500 benchmarks. Later parts add transaction costs, a wider asset universe, a time-varying risk-free rate, a CVaR-based objective and different window lengths. `SUMMARY.md` ties the parts together, and the chart below shows one result from each part.
+
+![One result from each part](chart_summary.png)
 
 **Asset universe:** 8 US large-cap stocks (JPM, AAPL, XOM, JNJ, PG, CAT, NEE, AMZN) across eight sectors for the main analysis, and from Part 4 also five ETFs (VNQ real estate, TLT long Treasuries, EFA developed international, EEM emerging markets, GLD gold), 13 assets in all. **Data:** Yahoo Finance daily prices from January 2014 to 13 October 2026 (3,214 trading days; the end date is pinned in each notebook), which gives 15 non-overlapping six-month test windows.
 
@@ -50,7 +52,7 @@ Yahoo Finance prices -> log returns -> five-year training window
 
 **Measuring against the right risk-free rate matters more than optimizing with it (Part 5).** Over the test windows the T-bill compounded to 2.74% a year, above the 2% first assumed, so Sharpe ratios against 2% are too high by 0.04 to 0.05. Using each window's own T-bill yield in the optimizer changes only 2% to 5% of the portfolio on average.
 
-**CVaR objectives (Part 7).** Minimum-variance and minimum-CVaR portfolios cut the realized daily tail loss (about 1.4% against 2.1% with 13 assets) but not the drawdown, and give up roughly 30% to 40% of the return. A maximum return-per-CVaR portfolio on GARCH-filtered scenarios has the best Sharpe of the optimized portfolios (0.97 on 8 stocks), with thin statistical support. Filtered scenarios predict the next six months' CVaR better than plain historical scenarios for portfolios not optimized on them.
+**CVaR objectives (Part 7).** Minimum-variance and minimum-CVaR portfolios cut the realized daily tail loss (about 1.4% against 2.1% with 13 assets) but not reliably the drawdown (deeper than Max Sharpe's on 8 stocks, shallower on 13 assets), and give up roughly 30% to 40% of the return. A maximum return-per-CVaR portfolio on GARCH-filtered scenarios has the best Sharpe of the optimized portfolios (0.97 on 8 stocks), with thin statistical support. Filtered scenarios predict the next six months' CVaR better than plain historical scenarios for portfolios not optimized on them.
 
 **Both approaches handle a tail event poorly.** All covariance estimates post their worst error in the COVID window.
 
@@ -312,6 +314,8 @@ Both GARCH variants are ahead of the sample covariance at every test-window leng
 - `part8_window_length.ipynb` -- Part 8: 3-, 6- and 12-month test windows and 3-, 5- and 7-year training windows on the 8 stocks (per-configuration estimates are cached in git-ignored `cache_inputs8_*.pkl` files).
 - `chart_part8_window_length.png` -- volatility error and net Sharpe by window length.
 - `part8_vol_error_by_window_length.csv`, `part8_performance_by_window_length.csv`, `part8_cost_drag.csv`, `part8_window_errors.csv` -- the numbers behind the Part 8 tables.
+- `SUMMARY.md` -- Part 10: a short write-up tying the parts together.
+- `part10_summary.ipynb`, `chart_summary.png` -- Part 10: the consolidated chart, drawn from the CSV files the earlier parts saved (no optimizations are run).
 
 ---
 
