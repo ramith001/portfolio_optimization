@@ -477,3 +477,29 @@ def performance_summary(daily_returns, rf=0.02, annualize=252):
     ann_ret = (1 + daily_returns).prod() ** (annualize / n) - 1
     ann_vol = daily_returns.std() * np.sqrt(annualize)
     return {'ann_return': ann_ret, 'ann_vol': ann_vol, 'sharpe': (ann_ret - rf) / ann_vol}
+
+
+# ---------------------------------------------------------------------------
+# Part 4: caching the per-window estimates
+#
+# build_window_inputs fits one GARCH model per asset and a DCC model for every window, which takes several minutes
+# per universe. Parts 4 to 8 all use the same estimates for the same universes, so they are built once and cached
+# (cache files are git-ignored). The cache is keyed on the tickers, the date range and the window settings, and is
+# rebuilt if any of them differ.
+# ---------------------------------------------------------------------------
+def load_or_build_window_inputs(cache_path, log_returns, tickers, annualize=252, train_years=5, test_months=6,
+                                verbose=False):
+    import os
+    import pickle
+    key = {'tickers': list(tickers), 'first': str(log_returns.index[0].date()), 'last': str(log_returns.index[-1].date()),
+           'annualize': annualize, 'train_years': train_years, 'test_months': test_months}
+    if os.path.exists(cache_path):
+        with open(cache_path, 'rb') as f:
+            blob = pickle.load(f)
+        if blob.get('key') == key:
+            return blob['inputs']
+    inputs = build_window_inputs(log_returns[list(tickers)], list(tickers), annualize=annualize,
+                                 train_years=train_years, test_months=test_months, verbose=verbose)
+    with open(cache_path, 'wb') as f:
+        pickle.dump({'key': key, 'inputs': inputs}, f)
+    return inputs

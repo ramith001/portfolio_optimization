@@ -54,7 +54,7 @@ Yahoo Finance prices  --->  log returns  --->  Sample Covariance  --->  Efficien
 
 **Full-sample Max Sharpe portfolios differ meaningfully.** Using the full 10-year sample, the GARCH-informed covariance produces a Max Sharpe portfolio with an estimated volatility of 14.20%, versus 19.97% for the sample-covariance version, with noticeably different weights, GARCH shifts meaningful weight toward JPM and away from CAT and NEE, reflecting that JPM's current conditional volatility sits well below its 10-year historical average while several other names don't show the same gap.
 
-**GARCH provides a genuinely better risk estimate under ordinary market conditions.** Excluding the one unforecastable crisis window, GARCH-informed covariance produced a 28.2% lower average prediction error than sample covariance (3.52% vs 4.90%), and was the more accurate approach in 5 of the 8 ordinary-condition windows.
+**GARCH provides a genuinely better risk estimate under ordinary market conditions.** Excluding the one unforecastable crisis window, GARCH-informed covariance produced a 28.2% lower average prediction error than sample covariance (3.52% vs 4.90%), and was the more accurate approach in 5 of the 8 ordinary-condition windows. Part 4 qualifies how far this goes: it is a result about portfolio volatility, and for the volatility of individual assets GARCH is no better than the sample estimate in this data (see Part 4).
 
 **Part 3 qualifies how far the GARCH result carries.** The finding above is about how well each covariance matrix *predicts portfolio volatility*. When the portfolios are instead scored on realized, net-of-cost performance (Part 3), the GARCH-informed portfolios have lower realized volatility than the sample-covariance one, but their return advantage is small and not statistically distinguishable, and a plain equal-weight portfolio beats all of the Max Sharpe portfolios over the same 15 windows. A better risk estimate did not, on this evidence, make a better portfolio than not optimizing at all.
 
@@ -68,7 +68,7 @@ Yahoo Finance prices  --->  log returns  --->  Sample Covariance  --->  Efficien
 
 **Long-only; transaction costs are only modelled in Part 3, and as a simple proportional cost.** The main analysis and Parts 1 and 2 rebalance fresh at each window with no penalty for turnover. Part 3 adds a proportional cost per unit traded and a turnover penalty in the optimizer (see below). It does not model market impact, bid-ask spreads that vary by stock or period, taxes, or shorting costs, and the 10 bps headline is a round number, not a measured one.
 
-**Eight assets, one decade.** A larger universe and a longer or higher-frequency dataset would give the rolling validation more windows and more statistical power, particularly since excluding even one window (the COVID crash) noticeably changes the picture, a sign the sample is still relatively small.
+**Few windows, even with more assets.** The rolling validation has 15 six-month windows, and excluding even one (the COVID crash) noticeably changes the picture. Part 4 widens the universe from 8 US stocks to 13 assets (adding a REIT, long Treasuries, developed and emerging international equity and gold), which adds assets and asset-level observations but not windows, so the portfolio-level conclusions still rest on 14 to 15 non-independent windows. A longer or higher-frequency dataset would be needed to change that.
 
 ---
 
@@ -155,6 +155,36 @@ The GARCH variants trade more than the sample covariance, so they pay more, but 
 
 ---
 
+## Part 4: Beyond Eight US Stocks
+
+The analysis so far used eight US large-cap stocks. Part 4 adds five ETFs, Vanguard Real Estate (VNQ), iShares 20+ Year Treasury (TLT), iShares MSCI EAFE (EFA), iShares MSCI Emerging Markets (EEM) and SPDR Gold (GLD), for 13 assets, with the same 15 rolling windows, 35% cap and pinned data. The average pairwise correlation falls from 0.32 to 0.28. `part4_expanded_universe.ipynb` makes four comparisons; the per-window estimates for both universes are cached in git-ignored pickles that later parts reuse (`load_or_build_window_inputs` in `portfolio_utils.py`).
+
+**Portfolio level: errors fall with the wider universe, and the GARCH advantage survives.** Mean absolute gap between the volatility a Max Sharpe portfolio's covariance predicted and the volatility realized over the next six months, excluding the COVID window:
+
+| | Sample | GARCH + static corr | GARCH + DCC corr |
+|---|---|---|---|
+| 8 US stocks (14 windows) | 5.78% | 4.32% | 3.92% |
+| 13 assets (14 windows) | 3.93% | 2.75% | 2.74% |
+
+GARCH with static correlation has the lower error than the sample covariance in 10 of 15 windows (8 stocks) and 11 of 15 (13 assets), and the paired t-statistic excluding COVID is 1.46 and 1.50, so it is consistent with an advantage but not statistically clear in either universe. DCC's edge over static correlation, visible with 8 stocks, is gone with 13 (2.74% vs. 2.75%).
+
+**Asset level: GARCH is not a better volatility forecast on average.** Over the 195 asset-windows (13 assets x 15 windows), the GARCH volatility at the end of the training window is closer to the next six months' realized volatility than the sample volatility in 52% of them, with a mean error of 6.59% against 6.52% (4.93% against 4.94% excluding COVID, 54% closer, t = 0.03). The observations are not independent (assets move together and windows are adjacent), so these are indicative. The picture differs by asset class (excluding COVID, GARCH error relative to sample error): long Treasuries -30%, developed international equity -19%, REITs -6%, but emerging markets +8%, US large-cap stocks +4% (112 asset-windows, 5.48% vs. 5.28%) and gold +3%. Within the 8 stocks, GARCH is better for PG, JNJ and JPM and worse for AAPL, AMZN, NEE and CAT. So the portfolio-level result in Part 1 is not explained by a better single-asset volatility forecast; why the portfolio-level error is lower was not isolated here.
+
+**Random sub-universes.** In 300 random 8-asset subsets of the 13 (GARCH with static correlation against sample covariance), GARCH has the lower average error in every one, by 0.99 percentage points on average (5th to 95th percentile 0.46 to 1.54). The advantage is larger with fewer non-stock assets (+1.47 points with none, +0.99 with three, +0.57 with five). All 300 subsets draw on the same 14 windows, so this shows the advantage is not specific to one set of eight stocks, not that there are 300 independent confirmations.
+
+**Net performance: the Part 3 Sharpe edge for GARCH does not carry over.** Cost-blind Max Sharpe net of 10 bps, 2% risk-free rate as in Part 3:
+
+| | Sample | GARCH + static corr | GARCH + DCC corr | Equal weight |
+|---|---|---|---|---|
+| 8 US stocks, net Sharpe | 0.791 | 0.852 | 0.854 | 1.102 |
+| 13 assets, net Sharpe | 0.883 | 0.832 | 0.892 | 1.012 |
+
+With 13 assets GARCH with static correlation has a lower net Sharpe than the sample covariance (0.832 vs. 0.883), DCC is about level with it (0.892), and equal weight is again the best (1.012, with a turnover of 0.10 against 0.41 to 0.66 for the optimized portfolios). A Max Sharpe portfolio holds a median of 5 or 6 of the 13 assets and has a position at the 35% cap in 10 to 12 of the 15 windows. The small Sharpe edge for GARCH-informed covariance seen with 8 stocks in Part 3 was specific to that universe.
+
+![Portfolio volatility error for 8 vs. 13 assets, asset-level error by class, and the GARCH advantage across 300 random sub-universes](chart_part4_universe.png)
+
+---
+
 ## Files
 
 - `portfolio_optimization.ipynb` -- the original 2014-2024 notebook, left untouched.
@@ -167,6 +197,9 @@ The GARCH variants trade more than the sample covariance, so they pay more, but 
 - `part3_transaction_costs.ipynb` -- Part 3: cost model, turnover penalty and net-of-cost comparison (the cost functions were added to `portfolio_utils.py`).
 - `chart_part3_transaction_costs.png` -- net Sharpe ratio vs. cost level for every strategy, and turnover at 10 bps.
 - `part3_cost_comparison_10bps.csv`, `part3_cost_sensitivity.csv`, `part3_paired_comparisons.csv`, `part3_turnover_by_window.csv` -- the numbers behind the Part 3 tables.
+- `part4_expanded_universe.ipynb` -- Part 4: 8 US stocks vs. 13 assets at portfolio level, asset level and across 300 random sub-universes (`load_or_build_window_inputs` was added to `portfolio_utils.py`; the per-window estimates are cached in git-ignored `cache_window_inputs_*.pkl` files).
+- `chart_part4_universe.png` -- portfolio volatility error by universe, asset-level error by class, and the GARCH advantage across random sub-universes.
+- `part4_portfolio_vol_errors.csv`, `part4_window_errors.csv`, `part4_net_performance.csv`, `part4_asset_vol_errors.csv`, `part4_random_subsets.csv` -- the numbers behind the Part 4 tables.
 
 ---
 
