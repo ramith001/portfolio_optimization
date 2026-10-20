@@ -224,6 +224,37 @@ Part 3 used equal weight as a reference. Part 6 compares the Max Sharpe strategi
 
 ![Wealth, drawdowns and Sharpe ratio intervals for the optimized portfolios, equal weight and the S&P 500](chart_part6_benchmarks.png)
 
+## Part 7: A CVaR-Based Objective Alongside Mean-Variance
+
+Variance treats gains and losses alike and says little about the tail. Part 7 adds portfolios built on Conditional Value at Risk (CVaR at 95%, the average loss on the worst 5% of days), solved as linear programs on the five years of daily training returns (`min_cvar_portfolio` and `max_starr_portfolio` in `portfolio_utils.py`), and compares them with the mean-variance portfolios on tail outcomes. The CVaR portfolios are minimum CVaR, and maximum STARR (excess return per unit of CVaR, the CVaR analogue of Max Sharpe). Each has a *historical* version, using the training returns as they are, and a *filtered* version, using filtered historical simulation: each asset's returns are divided by its GARCH(1,1) conditional volatility and multiplied by the one-day-ahead GARCH volatility forecast, so the scenarios reflect current volatility while keeping the cross-asset dependence of the historical shocks. Max Sharpe, minimum variance (sample and GARCH covariance) and equal weight are the references. Same 15 windows, 35% cap, 10 bps costs and T-bill-based Sharpe as Parts 5 and 6, for 8 stocks and 13 assets (`part7_cvar.ipynb`).
+
+| | Return | Sharpe | Max drawdown | Daily CVaR 95% | Worst window |
+|---|---|---|---|---|---|
+| 8 stocks: Max Sharpe (sample) | 19.3% | 0.782 | -28.1% | 3.09% | -17.4% |
+| 8 stocks: Min variance (sample) | 13.9% | 0.670 | -31.9% | 2.35% | -4.8% |
+| 8 stocks: Min CVaR (historical) | 14.3% | 0.677 | -30.5% | 2.39% | -10.0% |
+| 8 stocks: Min CVaR (filtered) | 14.4% | 0.670 | -32.7% | 2.54% | -9.6% |
+| 8 stocks: Max STARR (historical) | 19.5% | 0.814 | -26.8% | 2.97% | -16.5% |
+| 8 stocks: Max STARR (filtered) | 22.0% | 0.968 | -27.5% | 2.92% | -15.4% |
+| 8 stocks: equal weight | 21.7% | 1.061 | -30.5% | 2.61% | -9.6% |
+| 13 assets: Max Sharpe (sample) | 15.7% | 0.870 | -23.0% | 2.15% | -16.5% |
+| 13 assets: Min variance (sample) | 9.4% | 0.674 | -21.4% | 1.39% | -12.7% |
+| 13 assets: Min CVaR (historical) | 9.1% | 0.639 | -20.0% | 1.41% | -11.2% |
+| 13 assets: Min CVaR (filtered) | 8.8% | 0.606 | -23.7% | 1.44% | -15.5% |
+| 13 assets: Max STARR (historical) | 15.8% | 0.883 | -22.5% | 2.13% | -16.0% |
+| 13 assets: Max STARR (filtered) | 16.6% | 0.959 | -20.3% | 2.13% | -13.6% |
+| 13 assets: equal weight | 16.8% | 0.962 | -25.9% | 2.13% | -12.1% |
+
+**Risk-minimizing portfolios cut the daily tail, not the drawdown, and cost a lot of return.** Minimum variance and minimum CVaR have a realized daily CVaR of 2.35% to 2.54% on 8 stocks (3.09% for Max Sharpe) and 1.39% to 1.44% on 13 assets (2.13% to 2.15% for the others), but a Sharpe ratio of 0.61 to 0.74 against 0.78 to 1.06 for the others. Their maximum drawdowns are not smaller on 8 stocks (30% to 33%, against 28% for Max Sharpe), and on 13 assets they range from 20.0% (minimum CVaR, historical) to 23.7%. Drawdowns come from multi-day declines, which a daily tail measure does not target. The tail-based objective does not beat the variance one: minimum CVaR (historical) and minimum variance have a daily CVaR of 2.39% and 2.35% on 8 stocks and 1.41% and 1.39% on 13 assets, and their Sharpe ratios are not distinguishable (a block bootstrap puts the probability that minimum CVaR's is higher at 50% and 24%).
+
+**Filtered scenarios do not improve the portfolios.** Minimum CVaR (filtered) has a Sharpe ratio of 0.670 and 0.606 against 0.677 and 0.639 for the historical version, deeper drawdowns (32.7% against 30.5% on 8 stocks, 23.7% against 20.0% on 13 assets) and about three times the turnover (0.60 and 0.49 against 0.17 and 0.19), because the filtered scenarios move with current volatility every window. Likewise GARCH-informed minimum variance is not distinguishable from sample minimum variance (bootstrap probability of a higher Sharpe 72% and 55%).
+
+**Maximum STARR with filtered scenarios has the best Sharpe ratio of any optimized portfolio, but the evidence is thin.** Its Sharpe is 0.968 (8 stocks) and 0.959 (13 assets) against 0.782 and 0.870 for Max Sharpe, with drawdowns of 27.5% and 20.3%, and it is about level with equal weight (1.061 and 0.962). In the bootstrap, the probability that it beats Max Sharpe is 97% on 8 stocks (median difference +0.19, 90% interval +0.02 to +0.37) and 79% on 13 assets (+0.09, interval -0.09 to +0.28); against equal weight it is 33% and 48%. The historical version is level with Max Sharpe (+0.03 and +0.01). Seven comparisons were examined, one of them at 97%, over 15 windows and one period, so this is suggestive, not established. STARR and Max Sharpe use the same noisy five-year mean returns, so the difference is in how risk is measured.
+
+**For predicting tail risk, filtered scenarios are better where the portfolio was not optimized on them.** For the equal-weight and Max Sharpe weights, the CVaR predicted from filtered scenarios is closer to the CVaR realized over the next six months than the historical prediction is, in 9 to 11 of 14 non-COVID windows (mean absolute gap 0.49 against 0.71 points for equal weight on 13 assets, 0.47 against 0.61 for Max Sharpe, 0.67 against 0.92 and 0.79 against 0.96 on 8 stocks). Historical scenarios over-predict the tail, because five years of training data include the 2020 and 2022 stress periods (for equal weight on 13 assets, a mean prediction of 2.22% against 1.91% realized); filtered ones are a little low (1.79%). For the minimum-CVaR weights, which were chosen to look good on those scenarios, both predictions are optimistic (13 assets: 1.18% historical and 1.10% filtered against 1.35% realized) and the comparison is mixed (filtered is closer on 8 stocks, 0.48 against 0.68, but not on 13 assets, 0.24 against 0.21). This repeats the pattern from Part 4: GARCH-based risk estimates help with prediction more clearly than they help the portfolios built from them.
+
+![Sharpe against drawdown for every strategy, realized tail loss, and CVaR prediction error](chart_part7_cvar.png)
+
 ---
 ## Files
 
@@ -246,6 +277,9 @@ Part 3 used equal weight as a reference. Part 6 compares the Max Sharpe strategi
 - `part6_benchmarks.ipynb` -- Part 6: the strategies against equal weight and S&P 500 buy-and-hold, with drawdowns, a CAPM regression and a block bootstrap of the Sharpe ratios.
 - `chart_part6_benchmarks.png` -- wealth paths, drawdowns and Sharpe intervals.
 - `part6_benchmark_summary.csv`, `part6_window_comparison.csv`, `part6_window_returns.csv`, `part6_capm.csv`, `part6_bootstrap_sharpe.csv` -- the numbers behind the Part 6 tables.
+- `part7_cvar.ipynb` -- Part 7: minimum-CVaR and maximum-STARR portfolios on historical and filtered scenarios against the mean-variance portfolios (the linear programs, `filtered_scenarios`, `portfolio_cvar` and `simulate_given_weights` were added to `portfolio_utils.py`).
+- `chart_part7_cvar.png` -- Sharpe vs. drawdown, realized tail loss and CVaR prediction error.
+- `part7_cvar_results.csv`, `part7_ranks.csv`, `part7_bootstrap_sharpe_differences.csv`, `part7_cvar_prediction.csv`, `part7_weights.csv` -- the numbers behind the Part 7 tables, and every window's weights.
 
 ---
 

@@ -634,3 +634,106 @@ def capm_regression(strategy, market, rf_daily, lags=10, annualize=252):
     return {'alpha_ann': beta_hat[0] * annualize, 'beta': beta_hat[1], 'r2': r2,
             't_alpha': beta_hat[0] / se[0], 't_beta': beta_hat[1] / se[1]}
 
+
+
+# ---------------------------------------------------------------------------
+# Part 7: CVaR-based portfolios (Rockafellar-Uryasev linear programs)
+#
+# CVaR at level beta of a portfolio's loss is the average loss in the worst (1 - beta) of scenarios. With
+# scenarios r_t (rows) and weights w, minimizing  alpha + sum_t u_t / ((1 - beta) T)  subject to
+# u_t >= -r_t.w - alpha, u_t >= 0  minimizes CVaR exactly, and it is a linear program. Scenario returns here are
+# daily log returns used as simple returns (a close approximation at daily frequency).
+# ---------------------------------------------------------------------------
+def _cvar_constraint_matrix(scen, n_extra_cols):
+    """Rows  -r_t.v - alpha - u_t <= 0  for variables [v (N), extra columns (zeros here), alpha, u (T)]."""
+    from scipy import sparse
+    T, N = scen.shape
+    left = sparse.csr_matrix(-scen)
+    mid = sparse.csr_matrix((T, n_extra_cols))
+    alpha_col = sparse.csr_matrix(-np.ones((T, 1)))
+    u_part = -sparse.identity(T, format='csr')
+    return sparse.hstack([left, mid, alpha_col, u_part], format='csr')
+
+
+def min_cvar_portfolio(scen, beta=0.95, max_weight=0.35):
+    """Long-only, fully invested portfolio minimizing the historical-scenario CVaR. Returns (weights, cvar)."""
+    from scipy import sparse
+    from scipy.optimize import linprog
+    T, N = scen.shape
+    c = np.concatenate([np.zeros(N), [1.0], np.full(T, 1.0 / ((1 - beta) * T))])
+    A_ub = _cvar_constraint_matrix(scen, 0)
+    A_eq = sparse.csr_matrix(np.concatenate([np.ones(N), [0.0], np.zeros(T)])[None, :])
+    bounds = [(0, max_weight)] * N + [(None, None)] + [(0, None)] * T
+    res = linprog(c, A_ub=A_ub, b_ub=np.zeros(T), A_eq=A_eq, b_eq=[1.0], bounds=bounds, method='highs')
+    if res.status != 0:
+        return np.ones(N) / N, float('nan')
+    return res.x[:N], float(res.fun)
+
+
+def max_starr_portfolio(scen, excess_mean, beta=0.95, max_weight=0.35):
+    """
+    Maximum return-to-CVaR (STARR) portfolio: maximize excess return per unit of CVaR, the CVaR analogue of Max
+    Sharpe, as a linear program (Charnes-Cooper: variables y = kappa * w, CVaR(y) <= 1). `excess_mean` is the daily mean
+    return of each asset minus the daily risk-free rate. Falls back to the minimum-CVaR portfolio if no portfolio has a
+    positive expected excess return.
+    """
+    from scipy import sparse
+    from scipy.optimize import linprog
+    T, N = scen.shape
+    # variables: y (N), kappa, alpha, u (T)
+    c = np.concatenate([-np.asarray(excess_mean, dtype=float), [0.0, 0.0], np.zeros(T)])
+    A_cvar = _cvar_constraint_matrix(scen, 1)           # [-r.y, 0 (kappa), -alpha, -u]
+    cap_rows = sparse.hstack([sparse.identity(N), sparse.csr_matrix(-max_weight * np.ones((N, 1))), sparse.csr_matrix((N, 1 + T))],
+                             format='csr')
+    cvar_row = sparse.csr_matrix(np.concatenate([np.zeros(N + 1), [1.0], np.full(T, 1.0 / ((1 - beta) * T))])[None, :])
+    A_ub = sparse.vstack([A_cvar, cap_rows, cvar_row], format='csr')
+    b_ub = np.concatenate([np.zeros(T), np.zeros(N), [1.0]])
+    A_eq = sparse.csr_matrix(np.concatenate([np.ones(N), [-1.0, 0.0], np.zeros(T)])[None, :])
+    bounds = [(0, None)] * N + [(0, None)] + [(None, None)] + [(0, None)] * T
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=[0.0], bounds=bounds, method='highs')
+    if res.status != 0 or res.x[N] < 1e-9:
+        return min_cvar_portfolio(scen, beta, max_weight)[0]
+    w = res.x[:N] / res.x[N]
+    return w / w.sum()
+
+
+def portfolio_cvar(returns, weights, beta=0.95):
+    """Historical CVaR (average of the worst 1 - beta share of daily portfolio losses, as a positive number)."""
+    loss = -(np.asarray(returns) @ np.asarray(weights))
+    k = max(1, int(np.ceil((1 - beta) * len(loss))))
+    return float(np.sort(loss)[-k:].mean())
+
+
+def filtered_scenarios(train_returns):
+    """
+    Filtered historical simulation: each asset's training returns are standardized by its own GARCH(1,1)
+    conditional volatility and rescaled by the one-day-ahead GARCH volatility forecast, so scenarios reflect current
+    volatility conditions while keeping the cross-asset dependence of the historical standardized shocks.
+    train_returns: DataFrame of daily log returns. Returns an array (T, N) of scenario returns.
+    """
+    cols = []
+    for t in train_returns.columns:
+        r = train_returns[t].values * 100
+        omega, alpha, beta = fit_garch(r)
+        z, last_s2 = garch_standardized_residuals(r, omega, alpha, beta)
+        s2_next = omega + alpha * r[-1] ** 2 + beta * last_s2
+        cols.append(z * np.sqrt(s2_next) / 100)
+    return np.column_stack(cols)
+
+
+def simulate_given_weights(test_list, weights_list, cost):
+    """Buy-and-hold inside each window from the given starting weights, with proportional cost on the trade from the
+    previous window's drifted holdings (none for the first window). Returns (window_df, daily net returns)."""
+    rows, parts = [], []
+    w_drift = None
+    for k, (test, w) in enumerate(zip(test_list, weights_list)):
+        w = np.asarray(w, dtype=float)
+        turnover = 0.0 if w_drift is None else float(np.abs(w - w_drift).sum())
+        gross = buy_and_hold_daily_returns(w, test)
+        net = gross.copy()
+        net.iloc[0] = (1 + gross.iloc[0]) * (1 - cost * turnover) - 1
+        rows.append({'window': k + 1, 'turnover': turnover, 'max_weight': float(w.max()), 'n_holdings': int((w > 0.005).sum())})
+        parts.append(net)
+        w_drift = drift_weights(w, test)
+    return pd.DataFrame(rows), pd.concat(parts)
+

@@ -1,0 +1,17 @@
+universe,strategy,rank_max_dd,rank_cvar,rank_worst_window,rank_sharpe
+8 assets,Max Sharpe (sample),3.0,8.0,8.0,4.0
+8 assets,Min variance (sample),6.0,1.0,1.0,7.0
+8 assets,Min variance (GARCH),7.0,3.0,4.0,5.0
+8 assets,Min CVaR (historical),4.0,2.0,5.0,6.0
+8 assets,Min CVaR (filtered),8.0,4.0,2.0,8.0
+8 assets,Max STARR (historical),1.0,7.0,7.0,3.0
+8 assets,Max STARR (filtered),2.0,6.0,6.0,2.0
+8 assets,Equal weight,5.0,5.0,3.0,1.0
+13 assets,Max Sharpe (sample),5.0,8.0,8.0,4.0
+13 assets,Min variance (sample),3.0,1.0,3.0,6.0
+13 assets,Min variance (GARCH),6.0,3.0,5.0,5.0
+13 assets,Min CVaR (historical),1.0,2.0,1.0,7.0
+13 assets,Min CVaR (filtered),7.0,4.0,6.0,8.0
+13 assets,Max STARR (historical),4.0,5.0,7.0,3.0
+13 assets,Max STARR (filtered),2.0,6.0,4.0,2.0
+13 assets,Equal weight,8.0,7.0,2.0,1.0
