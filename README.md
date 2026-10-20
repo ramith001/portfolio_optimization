@@ -6,69 +6,67 @@
 
 ## Overview
 
-Standard Markowitz portfolio theory builds an efficient frontier from a single, fixed historical covariance matrix. This project starts from the same textbook foundation, then asks a question the textbook version usually skips: where does the risk estimate driving the whole optimization actually come from, and does a more responsive risk estimate lead to a meaningfully better portfolio?
+Standard Markowitz portfolio theory builds an efficient frontier from a single, fixed historical covariance matrix. This project asks where the risk estimate driving the optimization comes from, and whether a more responsive one leads to a better portfolio. It builds three covariance estimates and compares them out of sample:
 
-A baseline efficient frontier is built from a standard sample covariance matrix. A second covariance matrix is then constructed using GARCH(1,1) conditional volatility forecasts, reusing the from-scratch implementation built for the companion volatility forecasting project, combined with historical correlations, an approach related to the Constant Conditional Correlation GARCH framework (Bollerslev, 1990). The two resulting portfolios are compared directly, including a proper out-of-sample test of which risk estimate was actually more accurate.
+- the **sample covariance** of the last five years of daily returns;
+- a **GARCH-informed covariance**: each asset's volatility from a GARCH(1,1) model (the from-scratch implementation in the companion [volatility forecasting project](https://github.com/ramith001/volatility-forecasting)) combined with the historical correlation matrix, related to the Constant Conditional Correlation GARCH framework (Bollerslev, 1990);
+- the same volatilities with a **DCC-GARCH** forecast of the correlation matrix (Part 2).
 
-**Asset universe:** 8 large-cap US stocks across financials, technology, energy, healthcare, consumer staples, industrials, utilities and consumer discretionary, chosen for sector diversification.
+They are compared on how well they predict a portfolio's volatility over the next six months, and on the realized, net-of-cost performance of the Max Sharpe portfolios built from them, against equal-weight and S&P 500 benchmarks. Later parts add transaction costs, a wider asset universe, a time-varying risk-free rate, a CVaR-based objective and different window lengths.
 
----
-
-## Two Issues Caught and Fixed Before Trusting the Result
-
-**Portfolio concentration.** An early version of this comparison let the optimizer allocate freely, and the GARCH-informed Max Sharpe portfolio concentrated 74% of its weight into a single stock. A result built on one concentrated bet doesn't actually test whether the covariance methodology is sound, it mostly tests whether that one stock happened to perform well. Fixed by capping any single position at 35% across every optimization, sample covariance and GARCH-informed alike.
-
-**A single out-of-sample window is not enough to trust.** The first version of the validation tested both covariance approaches on one train/test split. Fixed by rolling the split forward across 9 separate, non-overlapping six-month windows spanning the full decade of data, and comparing average prediction error across all of them rather than relying on one snapshot.
+**Asset universe:** 8 US large-cap stocks (JPM, AAPL, XOM, JNJ, PG, CAT, NEE, AMZN) across eight sectors for the main analysis, and from Part 4 also five ETFs (VNQ real estate, TLT long Treasuries, EFA developed international, EEM emerging markets, GLD gold), 13 assets in all. **Data:** Yahoo Finance daily prices from January 2014 to 13 October 2026 (3,214 trading days; the end date is pinned in each notebook), which gives 15 non-overlapping six-month test windows.
 
 ---
 
-## A Genuine Outlier, Identified and Handled Honestly
+## Evaluation Design
 
-Running the validation across 9 windows surfaced something worth being upfront about rather than averaging away. One window, the period starting January 2020, showed prediction errors above 29% for both models, while every other window sat between roughly 1% and 12%. That window's test period runs directly into the February-March 2020 COVID crash, an extreme, genuinely unprecedented volatility event with no precedent in either model's training data.
+**Rolling windows.** Each window fits everything on five years of daily returns (1,260 days) and is scored on the next six months (126 days), then the split rolls forward without overlap: 15 windows, with the first test window starting on 2019-01-07. Parts 2 to 7 reuse the same windows; Part 8 varies the lengths.
 
-Leaving that window in the headline number answers the wrong question, it mostly measures how badly both approaches handled an unforecastable shock, not which covariance method is more accurate under ordinary conditions. The notebook identifies this window explicitly (rather than silently dropping any inconvenient result) and reports both numbers: the full 9-window average, and the 8-window average with the crisis window excluded and clearly labelled as such.
+**Position cap.** Every optimization is long-only and fully invested with a 35% cap on any single position. Without a cap, the GARCH-informed Max Sharpe portfolio in an early version put 74% of its weight in one stock, which tests that stock more than the covariance method. Even with the cap, a position sits at the cap in 12 to 14 of the 15 windows for the 8-stock Max Sharpe portfolios.
 
----
+**Prediction metric.** For each covariance, the absolute gap between the volatility it predicts for its own Max Sharpe portfolio and the volatility realized over the window. Results are given over all 15 windows and excluding the window whose test period contains the March 2020 COVID crash (the test period starting 2020-01-07): its sample-covariance error is 29.5% in the 8-stock universe, against 10.0% for the next largest window, and it mostly measures an unforecastable shock.
 
-## Pipeline
+**Performance metric.** Daily returns of each strategy are concatenated across the test windows (buy-and-hold inside a window, 10 bps cost on what is traded at each rebalance) and summarized by return, volatility, Sharpe ratio against the T-bill return actually earned, drawdown and turnover. Differences are tested with block bootstraps and paired t-statistics over windows; with 15 windows these are guides, not proofs.
 
 ```
-Yahoo Finance prices  --->  log returns  --->  Sample Covariance  --->  Efficient Frontier
-                                                                              |
-                                                                              v
-                                              GARCH(1,1) per asset (from-scratch, reused    Max Sharpe /
-                                              from the volatility forecasting project)  --->  Min Variance
-                                                          |                                  Portfolios
-                                                          v
-                                              GARCH-Informed Covariance
-                                              (GARCH volatility x historical correlation)
-                                                          |
-                                                          v
-                                              Rolling 9-window out-of-sample validation
-                                              (with the COVID-crash window identified and isolated)
+Yahoo Finance prices -> log returns -> five-year training window
+        |-> sample covariance --------------------------------------------.
+        |-> GARCH(1,1) volatility per asset x historical correlation -------+--> Max Sharpe / Min variance / Min CVaR
+        '-> GARCH volatility x DCC correlation forecast ----------------------'      (35% cap, long only)
+                                                                                          |
+                                              next six months: predicted vs. realized volatility,
+                                              realized net-of-cost return, drawdown, Sharpe vs. T-bill
 ```
 
 ---
 
 ## Key Findings
 
-**Full-sample Max Sharpe portfolios differ meaningfully.** Using the full 10-year sample, the GARCH-informed covariance produces a Max Sharpe portfolio with an estimated volatility of 14.20%, versus 19.97% for the sample-covariance version, with noticeably different weights, GARCH shifts meaningful weight toward JPM and away from CAT and NEE, reflecting that JPM's current conditional volatility sits well below its 10-year historical average while several other names don't show the same gap.
+**Portfolio volatility prediction (Parts 1, 2, 4, 8).** Excluding the COVID window, the Max Sharpe portfolio's volatility prediction error is 5.78% for the sample covariance, 4.32% for GARCH with static correlation and 3.92% for GARCH with DCC correlation (8 stocks, 14 windows), and 3.93%, 2.75% and 2.74% with 13 assets. The advantage is present with test windows of 3 and 6 months and gone at 12 months, and it holds for 3, 5 and 7 years of training. The paired t-statistics are mostly 1.2 to 1.8, so it is consistent with an advantage but not clearly significant; the clearest case is DCC with 3-month windows (22 of 30 windows, t = 2.19). Full-sample Max Sharpe volatility is 18.42% with the sample covariance and 14.48% with GARCH.
 
-**GARCH provides a genuinely better risk estimate under ordinary market conditions.** Excluding the one unforecastable crisis window, GARCH-informed covariance produced a 28.2% lower average prediction error than sample covariance (3.52% vs 4.90%), and was the more accurate approach in 5 of the 8 ordinary-condition windows. Part 4 qualifies how far this goes: it is a result about portfolio volatility, and for the volatility of individual assets GARCH is no better than the sample estimate in this data (see Part 4).
+**For individual assets GARCH is not a better volatility forecast (Part 4).** Over 195 asset-windows the GARCH volatility is closer to the next six months' realized volatility in 52% of cases, with a mean error of 6.59% against 6.52% for the sample volatility. It helps for long Treasuries and developed international equity and hurts for US large-cap stocks and emerging markets.
 
-**Part 3 qualifies how far the GARCH result carries.** The finding above is about how well each covariance matrix *predicts portfolio volatility*. When the portfolios are instead scored on realized, net-of-cost performance (Part 3), the GARCH-informed portfolios have lower realized volatility than the sample-covariance one, but their return advantage is small and not statistically distinguishable, and a plain equal-weight portfolio beats all of the Max Sharpe portfolios over the same 15 windows. A better risk estimate did not, on this evidence, make a better portfolio than not optimizing at all.
+**Realized performance: costs are small, the GARCH edge is fragile, and equal weight wins (Parts 3, 5, 6, 8).** At 10 bps, trading costs take 0.09 to 0.13 percentage points a year from the Max Sharpe portfolios on 8 stocks. Their Sharpe ratio against the T-bill is 0.78 to 0.86 over January 2019 to July 2026, against 1.06 for equal weight of the same stocks and 0.76 for the S&P 500. The small Sharpe edge for GARCH-informed covariance holds for 8 stocks with five years of training, but reverses with three years of training (sample 0.82 against 0.67 and 0.62) and is absent with 13 assets. Equal weight is the best strategy in every comparison, though only its advantage over the S&P 500 is clear in a block bootstrap (it has the higher Sharpe in 96% of resamples).
 
-**Neither approach handles a genuine tail event well, and that's an honest limitation of both, not a flaw specific to either.** Both models posted their worst error by a wide margin in the window whose test period included the COVID crash. This is reported explicitly rather than smoothed over.
+**Measuring against the right risk-free rate matters more than optimizing with it (Part 5).** Over the test windows the T-bill compounded to 2.74% a year, above the 2% first assumed, so Sharpe ratios against 2% are too high by 0.04 to 0.05. Using each window's own T-bill yield in the optimizer changes only 2% to 5% of the portfolio on average.
+
+**CVaR objectives (Part 7).** Minimum-variance and minimum-CVaR portfolios cut the realized daily tail loss (about 1.4% against 2.1% with 13 assets) but not the drawdown, and give up roughly 30% to 40% of the return. A maximum return-per-CVaR portfolio on GARCH-filtered scenarios has the best Sharpe of the optimized portfolios (0.97 on 8 stocks), with thin statistical support. Filtered scenarios predict the next six months' CVaR better than plain historical scenarios for portfolios not optimized on them.
+
+**Both approaches handle a tail event poorly.** All covariance estimates post their worst error in the COVID window.
 
 ---
 
 ## Known Limitations
 
-**Correlation is static in the main analysis; Part 2 tests a dynamic alternative.** The GARCH-informed covariance matrix in the main analysis and Part 1 updates each asset's individual volatility dynamically but reuses the static historical correlation matrix. Part 2 adds a simple DCC-GARCH correlation estimate and compares the two (see below). The DCC used is the basic two-parameter version with a two-step estimator, shared by every pair of assets; richer variants (asset-specific dynamics, asymmetric terms, joint estimation) were not tried.
+**Few windows.** There are 15 six-month windows (more with shorter windows, fewer with longer ones), and removing one noticeably changes the picture, so every portfolio-level comparison rests on a small, non-independent sample. A wider universe (Part 4) adds assets and asset-level observations but not windows.
 
-**Long-only; transaction costs are only modelled in Part 3, and as a simple proportional cost.** The main analysis and Parts 1 and 2 rebalance fresh at each window with no penalty for turnover. Part 3 adds a proportional cost per unit traded and a turnover penalty in the optimizer (see below). It does not model market impact, bid-ask spreads that vary by stock or period, taxes, or shorting costs, and the 10 bps headline is a round number, not a measured one.
+**Hindsight in the universe and period.** The stocks and ETFs are today's large, liquid names, and the sample is a period in which US large caps did well. That favors the equal-weight and index benchmarks as much as the optimized portfolios, and it is a reason not to read the absolute returns as forecasts.
 
-**Few windows, even with more assets.** The rolling validation has 15 six-month windows, and excluding even one (the COVID crash) noticeably changes the picture. Part 4 widens the universe from 8 US stocks to 13 assets (adding a REIT, long Treasuries, developed and emerging international equity and gold), which adds assets and asset-level observations but not windows, so the portfolio-level conclusions still rest on 14 to 15 non-independent windows. A longer or higher-frequency dataset would be needed to change that.
+**Noisy mean returns.** Max Sharpe and maximum STARR use five-year mean returns, which are estimated poorly and push many portfolios to the position cap. Results for the covariance estimate are therefore diluted by mean-return noise; minimum-variance and minimum-CVaR portfolios (Part 7) avoid it but give up return.
+
+**Simple models.** The GARCH volatilities are GARCH(1,1) with normal innovations and no leverage term. The DCC is the basic two-parameter version with a two-step estimator, shared by every pair of assets. Costs are proportional (10 bps per unit traded, a round number, not a measured one); market impact, varying spreads, taxes and shorting costs are not modelled.
+
+**Data.** Adjusted prices from Yahoo are revised from time to time, so re-running a notebook can move a number in the last digits; the per-window estimates are cached (git-ignored pickles) so later parts use the same estimates as the earlier ones.
 
 ---
 
