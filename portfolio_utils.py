@@ -503,3 +503,59 @@ def load_or_build_window_inputs(cache_path, log_returns, tickers, annualize=252,
     with open(cache_path, 'wb') as f:
         pickle.dump({'key': key, 'inputs': inputs}, f)
     return inputs
+
+
+# ---------------------------------------------------------------------------
+# Part 5: a time-varying risk-free rate
+#
+# The optimizer and every Sharpe ratio so far used a fixed 2% risk-free rate. These functions let each window's
+# optimizer use the rate actually available at the start of the window (the 13-week T-bill yield on the last training
+# day), and score performance against the T-bill return actually earned over the same days.
+# ---------------------------------------------------------------------------
+def window_risk_free(window_inputs, log_returns, tbill_annual):
+    """T-bill yield (annual, as a fraction) on the last training day of each window. `tbill_annual` is a daily Series."""
+    out = []
+    for wi in window_inputs:
+        first_test_day = wi['test'].index[0]
+        known = tbill_annual[tbill_annual.index < first_test_day]
+        out.append(float(known.iloc[-1]))
+    return out
+
+
+def simulate_strategy_rf(window_inputs, n_assets, cov_key, cost, rf_by_window, max_weight=0.35):
+    """simulate_strategy (cost-blind) with the optimizer's risk-free rate set per window instead of one fixed value."""
+    rows, net_parts, gross_parts, weights = [], [], [], []
+    w_drift = None
+    for wi, rf in zip(window_inputs, rf_by_window):
+        if cov_key == 'equal_weight':
+            w = np.ones(n_assets) / n_assets
+        else:
+            w = max_sharpe_portfolio(wi['mean'], wi['cov'][cov_key], n_assets, rf=rf, max_weight=max_weight)
+        turnover = 0.0 if w_drift is None else float(np.abs(w - w_drift).sum())
+        gross = buy_and_hold_daily_returns(w, wi['test'])
+        net = gross.copy()
+        net.iloc[0] = (1 + gross.iloc[0]) * (1 - cost * turnover) - 1
+        rows.append({'window': wi['window'], 'test_start': wi['test_start'], 'rf': rf, 'turnover': turnover,
+                     'max_weight': float(w.max()), 'n_holdings': int((w > 0.005).sum())})
+        weights.append(w)
+        net_parts.append(net)
+        gross_parts.append(gross)
+        w_drift = drift_weights(w, wi['test'])
+    return pd.DataFrame(rows), pd.concat(net_parts), pd.concat(gross_parts), np.array(weights)
+
+
+def performance_vs_risk_free(daily_returns, rf_daily, fixed_rf=0.02, annualize=252):
+    """
+    Annualized geometric return and volatility of a daily simple-return series, and its Sharpe ratio two ways:
+    against a fixed rate (the earlier parts' convention: (geometric return - fixed_rf) / vol) and against the T-bill
+    return compounded over the same days ((geometric return - compounded T-bill return) / vol).
+    rf_daily: Series of the daily T-bill return aligned to the same dates.
+    """
+    n = len(daily_returns)
+    ann_ret = (1 + daily_returns).prod() ** (annualize / n) - 1
+    ann_vol = daily_returns.std() * np.sqrt(annualize)
+    rf = rf_daily.reindex(daily_returns.index).fillna(0.0)
+    ann_rf = (1 + rf).prod() ** (annualize / n) - 1
+    return {'ann_return': ann_ret, 'ann_vol': ann_vol, 'avg_tbill': ann_rf, 'sharpe_fixed': (ann_ret - fixed_rf) / ann_vol,
+            'sharpe_tbill': (ann_ret - ann_rf) / ann_vol}
+

@@ -183,8 +183,26 @@ With 13 assets GARCH with static correlation has a lower net Sharpe than the sam
 
 ![Portfolio volatility error for 8 vs. 13 assets, asset-level error by class, and the GARCH advantage across 300 random sub-universes](chart_part4_universe.png)
 
----
+## Part 5: A Time-Varying Risk-Free Rate
 
+The optimizer and every Sharpe ratio so far used a fixed 2% risk-free rate. The 13-week Treasury bill yield (`^IRX`) averaged 1.92% over the sample but ran from about 0% (2014 to 2015, 2020 to 2021) to 5.35% (2023 to 2024). The rate enters twice, and `part5_risk_free.ipynb` changes each separately. In the optimizer, each window uses the T-bill yield on its last training day (0.04% to 5.22% across the 15 windows) instead of 2%. In measurement, Sharpe is also computed against the T-bill return actually earned over the same days (geometric return minus the compounded T-bill return, over volatility). Everything else is as in Part 3: net of 10 bps costs, cost-blind Max Sharpe, 35% cap, both the 8-stock and the 13-asset universe from Part 4.
+
+**Measurement matters more than the optimizer.** Over the test windows the T-bill compounded to 2.74% a year, 0.74 points above the assumed 2%, so every Sharpe ratio computed against 2% is too high: by 0.035 to 0.041 with 8 stocks and 0.049 to 0.051 with 13 assets. For example, equal weight on 8 stocks has a net Sharpe of 1.102 against 2% and 1.061 against the T-bill. The Part 3 and Part 4 figures are the first kind; this part's are the second.
+
+**In the optimizer, the rate changes the portfolio only a little.** Full-sample Max Sharpe weights (8 stocks, GARCH covariance) move by 2.8 percentage points in total between a 0% and a 2% rate and by 7.2 between 2% and 5%; JPM, AAPL and NEE hold the same positions at all three. In the rolling comparison the share of the portfolio that differs between the fixed-rate and T-bill-rate versions averages 2% to 5% per window (at most 16%), and almost no window is identical. Using each window's own rate raises net Sharpe against the T-bill for every optimized strategy:
+
+| Net Sharpe vs. T-bill | Sample | GARCH + static corr | GARCH + DCC corr | Equal weight |
+|---|---|---|---|---|
+| 8 US stocks, fixed 2% in the optimizer | 0.756 | 0.816 | 0.816 | 1.061 |
+| 8 US stocks, window T-bill in the optimizer | 0.782 | 0.862 | 0.857 | 1.061 |
+| 13 assets, fixed 2% | 0.834 | 0.783 | 0.842 | 0.962 |
+| 13 assets, window T-bill | 0.870 | 0.817 | 0.865 | 0.962 |
+
+The gains (0.023 to 0.047) are about the size of the differences between the covariance methods themselves, over 15 windows of which the rate regime changes in only a few, so they should be read as small and untested, not as a reason to prefer the time-varying rate. Equal weight does not use the rate and is the best strategy in every row. The ordering of the optimized strategies is stable with 8 stocks (both GARCH variants above the sample covariance under either rate). With 13 assets it depends on the rate: DCC, then sample, then static correlation with the fixed rate; sample, DCC, then static with the T-bill rate.
+
+![T-bill yield and the rate each window used, and net Sharpe against the T-bill return for 8 and 13 assets](chart_part5_risk_free.png)
+
+---
 ## Files
 
 - `portfolio_optimization.ipynb` -- the original 2014-2024 notebook, left untouched.
@@ -200,6 +218,9 @@ With 13 assets GARCH with static correlation has a lower net Sharpe than the sam
 - `part4_expanded_universe.ipynb` -- Part 4: 8 US stocks vs. 13 assets at portfolio level, asset level and across 300 random sub-universes (`load_or_build_window_inputs` was added to `portfolio_utils.py`; the per-window estimates are cached in git-ignored `cache_window_inputs_*.pkl` files).
 - `chart_part4_universe.png` -- portfolio volatility error by universe, asset-level error by class, and the GARCH advantage across random sub-universes.
 - `part4_portfolio_vol_errors.csv`, `part4_window_errors.csv`, `part4_net_performance.csv`, `part4_asset_vol_errors.csv`, `part4_random_subsets.csv` -- the numbers behind the Part 4 tables.
+- `part5_risk_free.ipynb` -- Part 5: fixed vs. time-varying risk-free rate in the optimizer and in the Sharpe ratio (`window_risk_free`, `simulate_strategy_rf` and `performance_vs_risk_free` were added to `portfolio_utils.py`).
+- `chart_part5_risk_free.png` -- the T-bill yield with each window's rate, and net Sharpe against the T-bill return.
+- `part5_risk_free_comparison.csv`, `part5_weight_differences.csv`, `part5_window_rf.csv`, `part5_fullsample_weights_by_rf.csv` -- the numbers behind the Part 5 tables.
 
 ---
 
